@@ -2,8 +2,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use fxhash::FxHashMap; 
-use crate::domain::order::{Order, OrderPrice, Side};
-use crate::domain::traits::{ArenaStore, OrderIndex};
+use crate::domain::order::{OrderPrice, Side};
+use crate::domain::traits::OrderIndex;
 
 pub struct OrderBook {
     pub symbol: String,

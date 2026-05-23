@@ -2,7 +2,7 @@
 
 use crate::application::MatchingEvent;
 use crate::domain::engine::OrderBook;
-use crate::domain::order::{Order, Side};
+use crate::domain::order::{Order, OrderPrice, Side};
 use crate::domain::traits::ArenaStore;
 
 pub struct MatchingEngineService<A: ArenaStore<Order>> {
@@ -68,6 +68,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             let price = taker_order.price;
             let side = taker_order.side;
             let is_partial = taker_order.qty < taker_order.original_qty;
+            let qty = taker_order.qty;
 
             if let Ok(new_index) = self.arena.allocate(taker_order) {
                 
@@ -76,12 +77,12 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                 if is_partial {
                     events.push(MatchingEvent::OrderPartiallyFilled { 
                         order_id, 
-                        remaining_qty: taker_order.qty 
+                        remaining_qty: qty 
                     });
                 } else {
                     events.push(MatchingEvent::OrderPlaced { 
                         order_id, 
-                        qty: taker_order.qty 
+                        qty: qty 
                     });
                 }
             }

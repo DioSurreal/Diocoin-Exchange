@@ -1,7 +1,7 @@
 // src/infrastructure/memory_arena/manager.rs
 
-use crate::domain::traits::{ArenaStore, OrderIndex};
 use super::block::ArenaBlock;
+use crate::domain::traits::{ArenaStore, OrderIndex};
 
 pub struct ChainedArenaManager<T> {
     pub blocks: Vec<ArenaBlock<T>>,
@@ -15,7 +15,7 @@ impl<T> ChainedArenaManager<T> {
         Self {
             blocks: vec![first_block],
             block_size,
-            current_block_index: 0,
+            current_block_idx: 0,
         }
     }
 
@@ -34,59 +34,59 @@ impl<T> ChainedArenaManager<T> {
 
 impl<T> ArenaStore<T> for ChainedArenaManager<T> {
     fn allocate(&mut self, item: T) -> Result<OrderIndex, String> {
-        if let Some(local_idx) = self.blocks[self.current_block_idx].allocate(item) {
+        // 1. ลอง block ปัจจุบันก่อน (เช็ค is_full ก่อน move)
+        if !self.blocks[self.current_block_idx].is_full() {
+            let local_idx = self.blocks[self.current_block_idx].allocate(item).unwrap();
             let global_idx = self.encode_index(self.current_block_idx, local_idx);
             return Ok(OrderIndex(global_idx));
         }
 
-        for (b_idx, block) in self.blocks.iter_mut().enumerate() {
-            if !block.is_full() {
+        // 2. หา block ที่ยังว่างอยู่
+        for b_idx in 0..self.blocks.len() {
+            if !self.blocks[b_idx].is_full() {
                 self.current_block_idx = b_idx;
-                let local_idx = block.allocate(item).unwrap();
+                let local_idx = self.blocks[b_idx].allocate(item).unwrap();
                 let global_idx = self.encode_index(b_idx, local_idx);
                 return Ok(OrderIndex(global_idx));
             }
         }
 
-
-        let new_block = ArenaBlock::new(self.block_size);
+        // 3. ทุก block เต็ม — สร้างใหม่
+        let mut new_block = ArenaBlock::new(self.block_size);
+        let local_idx = new_block.allocate(item).unwrap();
         self.blocks.push(new_block);
         self.current_block_idx = self.blocks.len() - 1;
 
-        let local_idx = self.blocks[self.current_block_idx].allocate(item).unwrap();
         let global_idx = self.encode_index(self.current_block_idx, local_idx);
-        
         Ok(OrderIndex(global_idx))
     }
 
     #[inline(always)]
     fn get(&self, index: OrderIndex) -> Option<&T> {
         let (block_idx, local_idx) = self.decode_index(index.0);
-        self.blocks.get(block_idx)?
-                   .storage.get(local_idx)?
-                   .as_ref()
+        self.blocks.get(block_idx)?.storage.get(local_idx)?.as_ref()
     }
 
     #[inline(always)]
     fn get_mut(&mut self, index: OrderIndex) -> Option<&mut T> {
         let (block_idx, local_idx) = self.decode_index(index.0);
-        self.blocks.get_mut(block_idx)?
-                   .storage.get_mut(local_idx)?
-                   .as_mut()
+        self.blocks
+            .get_mut(block_idx)?
+            .storage
+            .get_mut(local_idx)?
+            .as_mut()
     }
 
     fn deallocate(&mut self, index: OrderIndex) -> Result<(), String> {
         let (block_idx, local_idx) = self.decode_index(index.0);
-        
+
         if block_idx >= self.blocks.len() {
             return Err("Global index out of bounds".to_string());
         }
 
         self.blocks[block_idx].deallocate(local_idx)?;
 
-
-        if block_idx > 0 && self.blocks[block_idx].free_slots.len() == self.block_size {
-        }
+        if block_idx > 0 && self.blocks[block_idx].free_slots.len() == self.block_size {}
 
         Ok(())
     }

@@ -1,2 +1,4 @@
 target/
 file_structure.txt
+Cargo.lock
+.env
