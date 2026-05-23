@@ -1,0 +1,27 @@
+[package]
+name = "matching-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Performance & Data Structures
+fxhash = "0.2.1"        # เร็วกว่า Default Hasher ของ Rust สำหรับ ID Lookup
+smallvec = "1.11"       # สำหรับเก็บข้อมูลขนาดเล็กใน Stack
+parking_lot = "0.12"    # Lock ที่เร็วและปลอดภัยกว่า std::sync
+
+# Async & Event Driven
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+rdkafka = { version = "0.36", features = ["tokio"] }
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort" # สำหรับระบบเทรด เราไม่ต้องการ stack unwinding
