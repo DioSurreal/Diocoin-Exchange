@@ -51,16 +51,18 @@ impl OrderBook {
             Side::Buy => {
                 let rev_price = std::cmp::Reverse(price);
                 if let Some(queue) = self.bid_book.get_mut(&rev_price) {
-                    queue.retain(|&idx| idx != arena_index);
+                    queue.pop_front();
                     if queue.is_empty() {
+                        drop(queue);
                         self.bid_book.remove(&rev_price);
                     }
                 }
             }
             Side::Sell => {
                 if let Some(queue) = self.ask_book.get_mut(&price) {
-                    queue.retain(|&idx| idx != arena_index);
+                    queue.pop_front();
                     if queue.is_empty() {
+                        drop(queue);
                         self.ask_book.remove(&price);
                     }
                 }

@@ -26,8 +26,8 @@ impl EngineEventProducer {
             let payload = serde_json::to_string(&event).unwrap();
             
             let topic = match &event {
-                MatchingEvent::TradeExecuted { .. } => "market.trading-history", // ส่งไปวาดกราฟ/เก็บบันทึก
-                MatchingEvent::OrderCompleted { .. } | MatchingEvent::OrderCanceled { .. } => "order.transactions-update", // ส่งไปแก้ Status ใน DB
+                MatchingEvent::TradeExecuted { .. } => "market.trading-history", // Send for chart/record keeping
+                MatchingEvent::OrderCompleted { .. } | MatchingEvent::OrderCanceled { .. } => "order.transactions-update", // Send for DB status updates
                 _ => "order.audit-log", 
             };
 

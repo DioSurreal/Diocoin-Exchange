@@ -1,14 +1,14 @@
 // src/interface/kafka_consumer.rs
 
+use super::kafka_producer::EngineEventProducer;
+use crate::application::matching_service::MatchingEngineService;
+use crate::domain::order::Order;
+use crate::domain::traits::ArenaStore;
+use crate::infrastructure::observability::governor::MemoryGovernor;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
 use std::sync::Arc;
-use crate::domain::order::Order;
-use crate::domain::traits::ArenaStore;
-use crate::application::matching_service::MatchingEngineService;
-use crate::infrastructure::observability::governor::MemoryGovernor;
-use super::kafka_producer::EngineEventProducer;
 
 pub struct PairOrderConsumer {
     consumer: StreamConsumer,
@@ -52,7 +52,7 @@ impl PairOrderConsumer {
                 Ok(borrowed_message) => {
                     let payload = match borrowed_message.payload_view::<str>() {
                         Some(Ok(s)) => s,
-                        _ => continue, 
+                        _ => continue,
                     };
 
                     let order: Order = match serde_json::from_str(payload) {
@@ -61,13 +61,20 @@ impl PairOrderConsumer {
                     };
 
                     if governor.is_under_pressure() {
-                        eprintln!("CRITICAL: Memory threshold exceeded! Triggering backpressure for {}", order.symbol);
+                        eprintln!(
+                            "CRITICAL: Memory threshold exceeded! Triggering backpressure for {}",
+                            order.symbol
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                         continue;
                     }
+                    // 1. Create buffer first
+                    let mut events = Vec::new();
 
-                    let events = engine_service.process_order(order);
+                    // 2. Pass buffer to the Engine (events will be updated)
+                    engine_service.process_order(order, &mut events);
 
+                    // 3. Send events to Producer for Kafka emission
                     event_producer.emit_events(events).await;
                 }
             }

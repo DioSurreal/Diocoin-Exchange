@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # Performance & Data Structures
 fxhash = "0.2.1"        # เร็วกว่า Default Hasher ของ Rust สำหรับ ID Lookup
-smallvec = "1.11"       # สำหรับเก็บข้อมูลขนาดเล็กใน Stack
+smallvec = { version = "1", features = ["union"] }
 parking_lot = "0.12"    # Lock ที่เร็วและปลอดภัยกว่า std::sync
 
 # Async & Event Driven
@@ -25,3 +25,6 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort" # สำหรับระบบเทรด เราไม่ต้องการ stack unwinding
+
+[dev-dependencies]
+proptest = "1.4"

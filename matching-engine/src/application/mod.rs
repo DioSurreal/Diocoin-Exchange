@@ -1,11 +1,12 @@
 // src/application/mod.rs
 
 pub mod matching_service;
+pub mod matching_service_test;
 
 use serde::{Serialize, Deserialize};
 use crate::domain::order::OrderPrice;
 
-/// ประกาศ Event ที่จะพ่นออกไปให้ Kafka (เพื่อนำไปลง DB และ Wallet)
+/// Declares events emitted to Kafka (for DB and Wallet updates)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MatchingEvent {
     OrderPlaced { order_id: u64, qty: u64 },

@@ -18,11 +18,12 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
         }
     }
 
-    pub fn process_order(&mut self, mut taker_order: Order) -> Vec<MatchingEvent> {
-        let mut events = Vec::new();
-        
+    // 🚀 1. Switch to &mut Vec (Buffer Reuse) to reduce heap allocation overhead
+    pub fn process_order(&mut self, mut taker_order: Order, events: &mut Vec<MatchingEvent>) {
+        events.clear(); // Clear existing data, reuse memory
+
         if taker_order.qty == 0 {
-            return events; 
+            return; 
         }
 
         while taker_order.qty > 0 {
@@ -39,7 +40,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             let maker_order = self.arena.get_mut(maker_index).unwrap();
 
             let match_qty = std::cmp::min(taker_order.qty, maker_order.qty);
-            let match_price = maker_order.price; // ราคาผู้สร้างสภาพคล่อง (Maker) เป็นหลัก
+            let match_price = maker_order.price;
 
             taker_order.fill(match_qty);
             maker_order.fill(match_qty);
@@ -53,11 +54,10 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
 
             if maker_order.is_filled() {
                 let maker_id = maker_order.order_id;
-                let maker_side = maker_order.side;
-                let maker_price = maker_order.price;
-
-                self.book.remove_from_book(maker_id, maker_price, maker_side);
-                let _ = self.arena.deallocate(maker_index);
+                
+                // 🚀 2. O(1) Removal: Remove only index from Registry.
+                // Do not search OrderBook queues; leave as a Ghost Order.
+                self.book.order_registry.remove(&maker_id);
 
                 events.push(MatchingEvent::OrderCompleted { order_id: maker_id });
             }
@@ -71,7 +71,6 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             let qty = taker_order.qty;
 
             if let Ok(new_index) = self.arena.allocate(taker_order) {
-                
                 self.book.insert_to_book(order_id, price, side, new_index);
 
                 if is_partial {
@@ -87,57 +86,91 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                 }
             }
         } else {
-            
             events.push(MatchingEvent::OrderCompleted { order_id: taker_order.order_id });
         }
-
-        events
     }
 
-    pub fn cancel_order(&mut self, order_id: u64) -> Vec<MatchingEvent> {
-        let mut events = Vec::new();
+    pub fn cancel_order(&mut self, order_id: u64, events: &mut Vec<MatchingEvent>) {
+        events.clear();
 
-        let arena_index = match self.book.order_registry.get(&order_id) {
-            Some(&idx) => idx,
+        // 🚀 3. O(1) Cancellation: Pull and remove from Registry immediately
+        let arena_index = match self.book.order_registry.remove(&order_id) {
+            Some(idx) => idx,
             None => {
                 events.push(MatchingEvent::CancelRejected {
                     order_id,
                     reason: "Order not found or already executed".to_string(),
                 });
-                return events;
+                return;
             }
         };
 
-        if let Some(order) = self.arena.get(arena_index) {
-            let price = order.price;
-            let side = order.side;
-
-            self.book.remove_from_book(order_id, price, side);
-            let _ = self.arena.deallocate(arena_index);
-
+        if let Some(order) = self.arena.get_mut(arena_index) {
+            order.qty = 0; // Transform into a Ghost Order 
+            
+            // Note: Memory is not reclaimed immediately to maintain O(1) complexity.
             events.push(MatchingEvent::OrderCanceled { order_id });
         }
-
-        events
     }
 
-    
-    fn get_best_ask(&self, max_price: OrderPrice) -> Option<crate::domain::traits::OrderIndex> {
-        if let Some((&price, queue)) = self.book.ask_book.iter().next() {
-            if price <= max_price {
-                return queue.front().copied();
+    // 🚀 4. Lazy Garbage Collection: Updated function to take &mut self
+    fn get_best_ask(&mut self, max_price: OrderPrice) -> Option<crate::domain::traits::OrderIndex> {
+        loop {
+            let (price, is_empty) = {
+                let mut iter = self.book.ask_book.iter_mut();
+                if let Some((&price, queue)) = iter.next() {
+                    if price > max_price { return None; }
+
+                    // Check the front of the queue
+                    while let Some(&idx) = queue.front() {
+                        if let Some(order) = self.arena.get(idx) {
+                            if order.qty > 0 {
+                                return Some(idx); // Found valid order ready for matching
+                            }
+                        }
+                        // Found Ghost Order (canceled or filled) -> remove in O(1)
+                        queue.pop_front();
+                        let _ = self.arena.deallocate(idx); // Reclaim memory in Arena
+                    }
+                    (price, queue.is_empty())
+                } else {
+                    return None; // Order book is empty
+                }
+            };
+
+            // If price level is empty, remove it
+            if is_empty {
+                self.book.ask_book.remove(&price);
             }
         }
-        None
     }
 
-    fn get_best_bid(&self, min_price: OrderPrice) -> Option<crate::domain::traits::OrderIndex> {
-        if let Some((rev_price, queue)) = self.book.bid_book.iter().next() {
-            let price = rev_price.0; 
-            if price >= min_price {
-                return queue.front().copied();
+    // Similar garbage collection logic for the Bid side
+    fn get_best_bid(&mut self, min_price: OrderPrice) -> Option<crate::domain::traits::OrderIndex> {
+        loop {
+            let (price_rev, is_empty) = {
+                let mut iter = self.book.bid_book.iter_mut();
+                if let Some((&price_rev, queue)) = iter.next() {
+                    if price_rev.0 < min_price { return None; }
+
+                    while let Some(&idx) = queue.front() {
+                        if let Some(order) = self.arena.get(idx) {
+                            if order.qty > 0 {
+                                return Some(idx);
+                            }
+                        }
+                        queue.pop_front();
+                        let _ = self.arena.deallocate(idx);
+                    }
+                    (price_rev, queue.is_empty())
+                } else {
+                    return None;
+                }
+            };
+
+            if is_empty {
+                self.book.bid_book.remove(&price_rev);
             }
         }
-        None
     }
 }

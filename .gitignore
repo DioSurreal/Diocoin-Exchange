@@ -1,4 +1,9 @@
 target/
 file_structure.txt
+note_solve_how_slow.txt
 Cargo.lock
 .env
+
+*.log
+*.tmp
+*.swp
