@@ -46,6 +46,12 @@ impl PairOrderConsumer {
 
         println!("Matching Engine Worker started for topic: {}", self.topic);
 
+        // ✅ [Z-ALLOC] 1. Create one large Buffer "outside the loop"
+        // only once when the worker starts.
+        // Pre-allocate around 1000 slots in advance
+        // (adjust depending on the expected maximum matches per order)
+        let mut event_buffer = Vec::with_capacity(1000);
+
         loop {
             match self.consumer.recv().await {
                 Err(e) => eprintln!("Kafka error: {}", e),
@@ -68,14 +74,19 @@ impl PairOrderConsumer {
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                         continue;
                     }
-                    // 1. Create buffer first
-                    let mut events = Vec::new();
+                    // ✅ [Z-ALLOC] 2. Clear old data from the previous order
+                    // without returning the memory back to the OS
+                    event_buffer.clear();
 
-                    // 2. Pass buffer to the Engine (events will be updated)
-                    engine_service.process_order(order, &mut events);
+                    // ✅ [Z-ALLOC] 3. Pass a reference of the external Buffer
+                    // to the Engine so it can fill new data into it instead                    engine_service.process_order(order, &mut event_buffer);
 
-                    // 3. Send events to Producer for Kafka emission
-                    event_producer.emit_events(events).await;
+                    // ✅ [Z-ALLOC] 4. Send as a Borrowed Slice (add `&`)
+                    // so values can continue being passed without allocation
+                    // (Note: don't forget to update
+                    // src/interface/kafka_producer.rs
+                    // to accept &[MatchingEvent] as well)
+                    event_producer.emit_events(&event_buffer).await;
                 }
             }
         }

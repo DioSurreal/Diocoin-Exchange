@@ -1,9 +1,9 @@
 // src/interface/kafka_producer.rs
 
+use crate::application::MatchingEvent;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use std::time::Duration;
-use crate::application::MatchingEvent;
 
 pub struct EngineEventProducer {
     producer: FutureProducer,
@@ -14,26 +14,29 @@ impl EngineEventProducer {
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("message.timeout.ms", "5000")
-            .set("acks", "1") 
+            .set("acks", "1")
             .create()
             .expect("Producer creation failed");
 
         Self { producer }
     }
 
-    pub async fn emit_events(&self, events: Vec<MatchingEvent>) {
+    pub async fn emit_events(&self, events: &[MatchingEvent]) {
+        if events.is_empty() {
+            return;
+        }
         for event in events {
             let payload = serde_json::to_string(&event).unwrap();
-            
+
             let topic = match &event {
                 MatchingEvent::TradeExecuted { .. } => "market.trading-history", // Send for chart/record keeping
-                MatchingEvent::OrderCompleted { .. } | MatchingEvent::OrderCanceled { .. } => "order.transactions-update", // Send for DB status updates
-                _ => "order.audit-log", 
+                MatchingEvent::OrderCompleted { .. } | MatchingEvent::OrderCanceled { .. } => {
+                    "order.transactions-update"
+                } // Send for DB status updates
+                _ => "order.audit-log",
             };
 
-            let record = FutureRecord::to(topic)
-                .payload(&payload)
-                .key(""); 
+            let record = FutureRecord::to(topic).payload(&payload).key("");
 
             if let Err((err, _)) = self.producer.send(record, Duration::from_secs(0)).await {
                 eprintln!("Failed to stream event to Kafka topic {}: {:?}", topic, err);
