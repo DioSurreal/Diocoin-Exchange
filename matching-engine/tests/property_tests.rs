@@ -1,7 +1,7 @@
 // tests/property_tests.rs
 
 use proptest::prelude::*;
-use matching_engine::domain::order::{Order, OrderPrice, Side};
+use matching_engine::domain::order::{Order, OrderPrice, Side, OrderType, OrderTimeInForce};
 use matching_engine::domain::traits::ArenaStore;
 use matching_engine::application::matching_service::MatchingEngineService;
 use matching_engine::infrastructure::memory_arena::ChainedArenaManager;
@@ -22,7 +22,7 @@ fn run_fuzz_matching_simulation(orders_data: Vec<(u64, u64, bool, u64)>) {
         let side = if is_buy { Side::Buy } else { Side::Sell };
         let price = OrderPrice(price_raw);
         
-        let order = Order::new(unique_id, 999, "BTCUSDT".to_string(), side, price, qty, 1716475000);
+        let order = Order::new(unique_id, 999, "BTCUSDT".to_string(), side, OrderType::Limit, OrderTimeInForce::GoodTillCancel, price, qty, 1716475000);
         
         service.process_order(order, &mut events);
 

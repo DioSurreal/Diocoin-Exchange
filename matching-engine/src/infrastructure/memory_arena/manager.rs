@@ -34,14 +34,14 @@ impl<T> ChainedArenaManager<T> {
 
 impl<T> ArenaStore<T> for ChainedArenaManager<T> {
     fn allocate(&mut self, item: T) -> Result<OrderIndex, String> {
-        // 1. ลอง block ปัจจุบันก่อน (เช็ค is_full ก่อน move)
+        // 1. Try current block first (check is_full before moving)
         if !self.blocks[self.current_block_idx].is_full() {
             let local_idx = self.blocks[self.current_block_idx].allocate(item).unwrap();
             let global_idx = self.encode_index(self.current_block_idx, local_idx);
             return Ok(OrderIndex(global_idx));
         }
 
-        // 2. หา block ที่ยังว่างอยู่
+        // 2. Find an available block
         for b_idx in 0..self.blocks.len() {
             if !self.blocks[b_idx].is_full() {
                 self.current_block_idx = b_idx;
@@ -51,7 +51,7 @@ impl<T> ArenaStore<T> for ChainedArenaManager<T> {
             }
         }
 
-        // 3. ทุก block เต็ม — สร้างใหม่
+        // 3. All blocks full — create a new one
         let mut new_block = ArenaBlock::new(self.block_size);
         let local_idx = new_block.allocate(item).unwrap();
         self.blocks.push(new_block);

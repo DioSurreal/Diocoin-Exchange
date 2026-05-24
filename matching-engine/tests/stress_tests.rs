@@ -1,7 +1,7 @@
 // tests/stress_tests.rs
 
 use std::time::Instant;
-use matching_engine::domain::order::{Order, OrderPrice, Side};
+use matching_engine::domain::order::{Order, OrderPrice, Side, OrderType, OrderTimeInForce};
 use matching_engine::application::matching_service::MatchingEngineService;
 use matching_engine::infrastructure::memory_arena::ChainedArenaManager;
 
@@ -32,6 +32,8 @@ fn test_matching_engine_million_transaction_load() {
             999, // Client ID
             "BTCUSDT".to_string(),
             side,
+            OrderType::Limit,
+            OrderTimeInForce::GoodTillCancel,
             price,
             qty,
             1716475000,

@@ -4,7 +4,7 @@ mod tests {
     use crate::application::matching_service::MatchingEngineService;
     use crate::domain::traits::ArenaStore;
     use crate::infrastructure::memory_arena::ChainedArenaManager;
-    use crate::domain::order::{Order, OrderPrice, Side};
+    use crate::domain::order::{Order, OrderPrice, Side, OrderType, OrderTimeInForce};
 
     // Helper function to create a Service with a small Arena (to test block growth)
     fn setup_test_engine() -> MatchingEngineService<ChainedArenaManager<Order>> {
@@ -19,7 +19,7 @@ mod tests {
         let mut service = setup_test_engine();
         let mut events = Vec::new(); // 🚀 Create buffer for events
 
-        let buy_order = Order::new(1, 101, "BTCUSDT".to_string(), Side::Buy, OrderPrice(60000), 5, 1716475000);
+        let buy_order = Order::new(1, 101, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(60000), 5, 1716475000);
 
         // 🚀 Pass buffer as a mutable reference
         service.process_order(buy_order, &mut events);
@@ -44,11 +44,11 @@ mod tests {
         let mut events = Vec::new(); // 🚀 Use a shared buffer at the function level
         
         // Send Maker Order to sell 2 BTC at 60,000
-        let maker_sell = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderPrice(60000), 2, 1716475000);
+        let maker_sell = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(60000), 2, 1716475000);
         service.process_order(maker_sell, &mut events);
 
         // Send Taker Order to buy 2 BTC at 60,000 (Exact match)
-        let taker_buy = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderPrice(60000), 2, 1716475005);
+        let taker_buy = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(60000), 2, 1716475005);
         
         // 🚀 Pass the same buffer; the system clears it internally before adding new events
         service.process_order(taker_buy, &mut events);
@@ -78,11 +78,11 @@ mod tests {
         let mut events = Vec::new();
 
         // 1. Maker sells 5 BTC at 60,000
-        let maker_sell = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderPrice(60000), 5, 1716475000);
+        let maker_sell = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(60000), 5, 1716475000);
         service.process_order(maker_sell, &mut events);
 
         // 2. Taker buys 2 BTC (Maker should have 3 BTC remaining)
-        let taker_buy = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderPrice(60000), 2, 1716475005);
+        let taker_buy = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(60000), 2, 1716475005);
         service.process_order(taker_buy, &mut events);
 
         // Should emit 2 Events: TradeExecuted and OrderCompleted (for the Taker)
@@ -100,7 +100,7 @@ mod tests {
         let mut service = setup_test_engine();
         let mut events = Vec::new();
 
-        let order = Order::new(1, 101, "BTCUSDT".to_string(), Side::Buy, OrderPrice(59000), 10, 1716475000);
+        let order = Order::new(1, 101, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(59000), 10, 1716475000);
         service.process_order(order, &mut events);
 
         // Cancel the order
@@ -129,9 +129,9 @@ mod tests {
 
         // Insert 3 orders (Block Size is 2)
         // The 3rd order should force the ChainedArena to grow a second block automatically
-        let o1 = Order::new(1, 101, "BTCUSDT".to_string(), Side::Buy, OrderPrice(50000), 1, 1716475000);
-        let o2 = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderPrice(51000), 1, 1716475001);
-        let o3 = Order::new(3, 103, "BTCUSDT".to_string(), Side::Buy, OrderPrice(52000), 1, 1716475002);
+        let o1 = Order::new(1, 101, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(50000), 1, 1716475000);
+        let o2 = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(51000), 1, 1716475001);
+        let o3 = Order::new(3, 103, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(52000), 1, 1716475002);
 
         // Use a single buffer to save memory
         service.process_order(o1, &mut events);
@@ -144,5 +144,79 @@ mod tests {
         let index_o3 = service.book.order_registry.get(&3).unwrap();
         let retrieved_o3 = service.arena.get(*index_o3).unwrap();
         assert_eq!(retrieved_o3.order_id, 3);
+    }
+}
+
+#[cfg(test)]
+mod phase2_tests {
+    use super::*;
+    use crate::application::matching_service::MatchingEngineService;
+    use crate::application::MatchingEvent;
+    use crate::domain::order::{Order, OrderPrice, Side, OrderType, OrderTimeInForce};
+    use crate::infrastructure::memory_arena::ChainedArenaManager;
+
+    #[test]
+    fn test_market_order_sweeps_liquidity_and_kills_remainder() {
+        let arena = ChainedArenaManager::new(100);
+        let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena);
+        let mut events = Vec::new();
+
+        // 1. Place Limit Ask (Maker) at 2 price levels
+        let ask1 = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(100), 10, 1000);
+        let ask2 = Order::new(2, 102, "BTCUSDT".to_string(), Side::Sell, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(105), 10, 1001);
+        
+        service.process_order(ask1, &mut events);
+        service.process_order(ask2, &mut events);
+
+        // 2. Send Market Buy (Taker) to sweep 15 shares (which exceeds the first Ask of 10)
+        let market_buy = Order::new(3, 103, "BTCUSDT".to_string(), Side::Buy, OrderType::Market, OrderTimeInForce::GoodTillCancel, OrderPrice(0), 15, 1002);
+        service.process_order(market_buy, &mut events);
+
+        // ✅ Verify results: 2 trades must occur (match price 100 for 10 units and price 105 for 5 units)
+        let trade_count = events.iter().filter(|e| matches!(e, MatchingEvent::TradeExecuted { .. })).count();
+        assert_eq!(trade_count, 2);
+
+        // ✅ Remaining Market Order (0 units) must not remain in the registry or ask_book
+        assert!(service.book.order_registry.get(&3).is_none());
+    }
+
+    #[test]
+    fn test_post_only_rejected_if_it_would_cross() {
+        let arena = ChainedArenaManager::new(100);
+        let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena);
+        let mut events = Vec::new();
+
+        // 1. Set resting Ask at price 100
+        let ask = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(100), 10, 1000);
+        service.process_order(ask, &mut events);
+
+        // 2. Send Buy Post-Only at price 101 (prices overlap, meaning it would match immediately)
+        let post_only_buy = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::PostOnly, OrderPrice(101), 5, 1001);
+        service.process_order(post_only_buy, &mut events);
+
+        // ✅ Must be rejected immediately; no matching allowed
+        assert!(events.iter().any(|e| matches!(e, MatchingEvent::CancelRejected { .. })));
+        // ✅ This order must not be registered in the system
+        assert!(service.book.order_registry.get(&2).is_none());
+    }
+
+    #[test]
+    fn test_ioc_order_fills_partial_and_kills_remainder() {
+        let arena = ChainedArenaManager::new(100);
+        let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena);
+        let mut events = Vec::new();
+
+        // 1. Set resting Ask at price 100 with 5 units
+        let ask = Order::new(1, 101, "BTCUSDT".to_string(), Side::Sell, OrderType::Limit, OrderTimeInForce::GoodTillCancel, OrderPrice(100), 5, 1000);
+        service.process_order(ask, &mut events);
+
+        // 2. Send Buy IOC at price 100 but request 15 units (insufficient liquidity)
+        let ioc_buy = Order::new(2, 102, "BTCUSDT".to_string(), Side::Buy, OrderType::Limit, OrderTimeInForce::ImmediateOrCancel, OrderPrice(100), 15, 1001);
+        service.process_order(ioc_buy, &mut events);
+
+        // ✅ Must successfully match available amount (5 units)
+        assert!(events.iter().any(|e| matches!(e, MatchingEvent::TradeExecuted { match_qty: 5, .. })));
+        // ✅ Remaining 10 units must be killed immediately; do not add to the book queue
+        assert!(service.book.order_registry.get(&2).is_none());
     }
 }
