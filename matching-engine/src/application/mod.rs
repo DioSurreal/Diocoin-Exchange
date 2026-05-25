@@ -3,6 +3,8 @@
 pub mod matching_service;
 pub mod matching_service_test;
 pub mod coordinator;
+pub mod tenant;
+pub mod router;
 
 use serde::{Serialize, Deserialize};
 use crate::domain::order::OrderPrice;
