@@ -2,6 +2,7 @@
 
 pub mod matching_service;
 pub mod matching_service_test;
+pub mod coordinator;
 
 use serde::{Serialize, Deserialize};
 use crate::domain::order::OrderPrice;

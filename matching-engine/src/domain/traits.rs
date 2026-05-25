@@ -1,6 +1,8 @@
 // src/domain/traits.rs
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize,Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OrderIndex(pub usize);
 
 pub trait ArenaStore<T> {

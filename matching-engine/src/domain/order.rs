@@ -20,7 +20,7 @@ pub enum OrderTimeInForce {
     ImmediateOrCancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize,Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OrderPrice(pub u64); 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

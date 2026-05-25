@@ -3,6 +3,9 @@
 use super::block::ArenaBlock;
 use crate::domain::traits::{ArenaStore, OrderIndex};
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 pub struct ChainedArenaManager<T> {
     pub blocks: Vec<ArenaBlock<T>>,
     pub block_size: usize,

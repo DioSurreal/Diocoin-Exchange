@@ -1,5 +1,7 @@
 // src/infrastructure/memory_arena/block.rs
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct ArenaBlock<T> {
     
     pub storage: Vec<Option<T>>,

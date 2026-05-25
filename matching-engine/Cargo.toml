@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 # Performance & Data Structures
-fxhash = "0.2.1"        # เร็วกว่า Default Hasher ของ Rust สำหรับ ID Lookup
+fxhash = "0.2.1"        
 smallvec = { version = "1", features = ["union"] }
-parking_lot = "0.12"    # Lock ที่เร็วและปลอดภัยกว่า std::sync
+parking_lot = "0.12"    
 
 # Async & Event Driven
 tokio = { version = "1.35", features = ["full"] }
@@ -19,12 +19,15 @@ rdkafka = { version = "0.36", features = ["tokio", "cmake-build"] }
 # Error Handling
 thiserror = "1.0"
 anyhow = "1.0"
+bincode = "1.3.3"
+tempfile = "3.27.0"
+
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort" # สำหรับระบบเทรด เราไม่ต้องการ stack unwinding
+panic = "abort" 
 
 [dev-dependencies]
 proptest = "1.4"

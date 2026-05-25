@@ -1,10 +1,14 @@
 // src/domain/engine.rs
 
 use std::collections::{BTreeMap, VecDeque};
-use fxhash::FxHashMap; 
+use fxhash::FxHashMap;
+use serde::{Deserialize, Serialize}; 
 use crate::domain::order::{OrderPrice, Side};
 use crate::domain::traits::OrderIndex;
 
+
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct OrderBook {
     pub symbol: String,
     
@@ -53,7 +57,7 @@ impl OrderBook {
                 if let Some(queue) = self.bid_book.get_mut(&rev_price) {
                     queue.pop_front();
                     if queue.is_empty() {
-                        drop(queue);
+                        
                         self.bid_book.remove(&rev_price);
                     }
                 }
@@ -62,7 +66,7 @@ impl OrderBook {
                 if let Some(queue) = self.ask_book.get_mut(&price) {
                     queue.pop_front();
                     if queue.is_empty() {
-                        drop(queue);
+                        
                         self.ask_book.remove(&price);
                     }
                 }

@@ -149,7 +149,6 @@ mod tests {
 
 #[cfg(test)]
 mod phase2_tests {
-    use super::*;
     use crate::application::matching_service::MatchingEngineService;
     use crate::application::MatchingEvent;
     use crate::domain::order::{Order, OrderPrice, Side, OrderType, OrderTimeInForce};

@@ -35,7 +35,7 @@ impl PairOrderConsumer {
 
     pub async fn start_worker_loop<A: ArenaStore<Order> + Send + 'static>(
         self,
-        mut engine_service: MatchingEngineService<A>,
+        _engine_service: MatchingEngineService<A>,
         governor: Arc<MemoryGovernor>,
     ) {
         self.consumer
