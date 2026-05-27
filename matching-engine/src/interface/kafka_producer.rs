@@ -29,15 +29,16 @@ impl EngineEventProducer {
             let payload = serde_json::to_string(&event).unwrap();
 
             let topic = match &event {
-                MatchingEvent::TradeExecuted { .. } => "market.trading-history", // Send for chart/record keeping
+                MatchingEvent::TradeExecuted { .. } => "market.trading-history", 
                 MatchingEvent::OrderCompleted { .. } | MatchingEvent::OrderCanceled { .. } => {
                     "order.transactions-update"
-                } // Send for DB status updates
+                } 
                 _ => "order.audit-log",
             };
 
             let record = FutureRecord::to(topic).payload(&payload).key("");
 
+            // ⚡ Emit to Kafka queue immediately
             if let Err((err, _)) = self.producer.send(record, Duration::from_secs(0)).await {
                 eprintln!("Failed to stream event to Kafka topic {}: {:?}", topic, err);
             }

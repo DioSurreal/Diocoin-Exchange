@@ -5,7 +5,7 @@ use crate::domain::order::Order;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-/// นิยามข้อผิดพลาดระดับ Domain/Application สำหรับระบบ Router
+/// Domain/Application level error definitions for the Router system
 #[derive(Debug)]
 pub enum RouterError {
     SymbolNotSupported(String),
@@ -13,7 +13,7 @@ pub enum RouterError {
 }
 
 pub struct EngineRouter<D: EventDispatcher> {
-    // ใช้ RwLock เพื่อให้รองรับ Concurrent Read ความเร็วสูงจากสตรีม Kafka หลายช่องพร้อมกัน
+    // Use RwLock to support high-speed Concurrent Reads from multiple Kafka streams
     tenants: RwLock<HashMap<String, TenantHandle>>,
     config: TenantConfig,
     dispatcher: D,
@@ -28,35 +28,34 @@ impl<D: EventDispatcher + Clone> EngineRouter<D> {
         }
     }
 
-    /// 🌐 ลงทะเบียนและชุบชีวิตคู่เหรียญใหม่ขึ้นมาในตระกูล Tenant แบบ Dynamic
+    /// 🌐 Register and dynamically initialize new trading pairs as Tenants
     pub fn register_tenant(&self, symbol: String) -> Result<(), std::io::Error> {
         let mut tenants_guard = self.tenants.write().unwrap();
         
-        // หากคู่เหรียญนี้เคยตื่นขึ้นมาทำงานอยู่แล้ว ให้ข้ามไปได้เลยป้องกัน Thread ซ้อนกัน
+        // If the pair is already active, skip to prevent overlapping threads
         if tenants_guard.contains_key(&symbol) {
             return Ok(());
         }
 
-        // คัดลอกคอนฟิกเพื่อแยกโฟลเดอร์ WAL และ Snapshot ประจำตัว aggregate ชิ้นนี้
+        // Copy config to isolate WAL and Snapshot folders for this aggregate
         let tenant_config = TenantConfig {
             wal_base_dir: self.config.wal_base_dir.clone(),
             snap_base_dir: self.config.snap_base_dir.clone(),
             snapshot_interval: self.config.snapshot_interval,
         };
 
-        // สั่งสปอว์นแยกสายการบิน (OS Thread) ออกไปอย่างโดดเดี่ยว
+        // Spawn isolated OS threads for each pair
         let handle = TenantWorker::spawn(symbol.clone(), tenant_config, self.dispatcher.clone())?;
         tenants_guard.insert(symbol, handle);
         
         Ok(())
     }
 
-    /// 🎯 คัดแยกและยิงส่งออเดอร์ตรงเข้าสู่ช่องทางประมวลผลของคู่เหรียญนั้นแบบ Non-blocking
+    /// 🎯 Route and dispatch orders directly to the pair's processing channel (Non-blocking)
     pub fn route_order(&self, order: Order) -> Result<(), RouterError> {
         // 💡 Clean Code & Ownership Optimization:
-        // เนื่องจากเราจำเป็นต้องย้ายสิทธิ์ (Move) ก้อน `order` เข้าไปในช่องแชนแนล 
-        // เราต้องทำการดึงชื่อคีย์ (Symbol) ออกมาเป็นอิสระล่วงหน้าก่อน 
-        // เพื่อไม่ให้ตัว Borrow Checker ของ Rust มองว่าคีย์โดนล็อกขณะกำลังย้ายข้อมูลตัวแม่
+        // We must extract the key (Symbol) independently beforehand to prevent the 
+        // Rust Borrow Checker from seeing the key as locked during the move.
         let target_symbol = order.symbol.clone(); 
 
         let tenants_guard = self.tenants.read().unwrap();
@@ -70,14 +69,14 @@ impl<D: EventDispatcher + Clone> EngineRouter<D> {
         }
     }
 
-    /// 🛑 สั่งปิดสวิตช์ระบบคู่เหรียญทั้งหมดอย่างปลอดภัย (Graceful Shutdown Checklist)
-    /// ตัวคุมทิศทางจะสั่งให้ทุกเอนจิ้นปั๊มสแนปช็อตหยดสุดท้ายลงดิสก์ก่อนปิด Thread แน่นอน ข้อมูลไม่มีวันหาย
+    /// 🛑 Safely shut down all trading pairs (Graceful Shutdown Checklist)
+    /// The router ensures every engine takes a final snapshot before thread termination; no data loss.
     pub fn shutdown_all(&self) {
         let mut tenants_guard = self.tenants.write().unwrap();
         
         println!("🛑 [Engine Router] Starting graceful shutdown sequence for all tenants...");
         
-        // ใช้ .drain() เพื่อดึง ownership ของแฮนเดิลออกมาทำลายและปิดระบบทีละสถานี
+        // Use .drain() to take ownership of handles for sequential system shutdown
         for (symbol, mut handle) in tenants_guard.drain() {
             println!("🌐 Dispatching stop signal to context: {}", symbol);
             let _ = handle.tx.send(TenantCommand::Shutdown);
