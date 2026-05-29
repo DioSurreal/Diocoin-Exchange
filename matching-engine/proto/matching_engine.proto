@@ -1,7 +1,6 @@
-// proto/matching_engine.proto
 syntax = "proto3";
 
-package matching_engine.v1;
+package diocoin.exchange.matching;
 
 // 🚀 DATA PLANE: High-speed trading order service via gRPC (HTTP/2 Multiplexing)
 service OrderExecutionService {
@@ -27,10 +26,10 @@ enum OrderType {
 message SubmitOrderRequest {
     uint64 order_id = 1;
     uint64 user_id = 2;
-    string symbol = 3;         // Trading pair, e.g., "BTC-USDT", used by the Router to route to the correct lane
+    string symbol = 3;         // Trading pair, e.g., "BTC-USDT"
     Side side = 4;
     OrderType order_type = 5;
-    uint64 price = 6;          // Fixed-point integer; never use float to ensure precision
+    uint64 price = 6;          // Fixed-point integer (Scale: 10^8)
     uint64 quantity = 7;
 }
 
@@ -47,4 +46,23 @@ message CancelOrderRequest {
 message CancelOrderResponse {
     bool success = 1;
     string message = 2;
+}
+
+// =================================================================
+// 🎯 ยุบรวมมาจาก EVENTS.PROTO เพื่อให้ฝั่ง Rust เจนออกมาที่โมดูลเดียวกัน
+// =================================================================
+
+message TradeExecutedEvent {
+  uint64 maker_id = 1;
+  uint64 taker_id = 2;
+  uint64 price = 3;         // Scale: 10^8
+  uint64 match_qty = 4;      // Scale: 10^8
+  uint64 total_value = 5;    // Scale: 10^8
+  int64 timestamp = 6;
+}
+
+message OutboundEvent {
+  oneof event {
+    TradeExecutedEvent trade = 1;
+  }
 }

@@ -14,7 +14,7 @@ use crate::domain::order::OrderPrice;
 pub enum MatchingEvent {
     OrderPlaced { order_id: u64, qty: u64 },
     OrderPartiallyFilled { order_id: u64, remaining_qty: u64 },
-    TradeExecuted { maker_id: u64, taker_id: u64, price: OrderPrice, match_qty: u64 },
+    TradeExecuted { maker_id: u64, taker_id: u64, price: OrderPrice, match_qty: u64 ,total_value: u64},
     OrderCompleted { order_id: u64 },
     OrderCanceled { order_id: u64 },
     CancelRejected { order_id: u64, reason: String },

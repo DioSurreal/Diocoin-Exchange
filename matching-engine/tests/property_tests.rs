@@ -11,7 +11,8 @@ use matching_engine::infrastructure::memory_arena::ChainedArenaManager;
 // 2. Memory tracking (order_registry) must perfectly align with active remaining quantities.
 fn run_fuzz_matching_simulation(orders_data: Vec<(u64, u64, bool, u64)>) {
     let arena = ChainedArenaManager::new(5);
-    let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena);
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena, event_tx);
     let mut events = Vec::new();
 
     // Use .enumerate() to create Sequential IDs to prevent collisions

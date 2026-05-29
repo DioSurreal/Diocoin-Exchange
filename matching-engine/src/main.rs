@@ -46,6 +46,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kafka_brokers = "localhost:9092";
     let grpc_addr = "[::1]:50051".parse()?;
 
+    metrics_exporter_prometheus::PrometheusBuilder::new()
+        .with_http_listener(([0, 0, 0, 0], 9102))
+        .install()
+        .expect("❌ can not available Prometheus Exporter");
+        
+    println!("📊 Prometheus metrics endpoint ready at http://localhost:9102/metrics");
+
     // 1. Boot memory monitoring system (Memory Governor)
     let memory_governor = Arc::new(MemoryGovernor::new(85.0));
     memory_governor.start_monitoring();
@@ -64,14 +71,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let governor_clone = memory_governor.clone();
         let brokers = kafka_brokers.to_string();
 
-        let arena_block_size = match pair.tier {
+        let arena_block_size: usize = match pair.tier {
             LoadTier::High => 500_000,
             LoadTier::Medium => 100_000,
             LoadTier::Low => 10_000,
         };
 
         let arena = ChainedArenaManager::new(arena_block_size);
-        let engine_service = MatchingEngineService::new(pair.symbol.clone(), arena);
+        
+        // 🚀 สร้าง Async Channel ขาออกมารองรับโครงสร้าง Protobuf OutboundEvent ตามสเปคเอนจิน
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // 🧠 รันลูปดักฟังสแตนด์บายทิ้งไว้ เพื่อเคลียร์คิวและส่งข้อมูลต่อในอนาคต
+        tokio::spawn(async move {
+            while let Some(_proto_event) = event_rx.recv().await {
+                // Logic สำหรับส่งต่อข้อมูลไปยัง Kafka หรือ gRPC Stream
+            }
+        });
+
+        let engine_service = MatchingEngineService::new(pair.symbol.clone(), arena, event_tx);
 
         // 💡 [NEW] 1. Create high-visibility command channel for this pair
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();

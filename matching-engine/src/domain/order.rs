@@ -2,6 +2,11 @@
 
 use serde::{Serialize, Deserialize};
 
+
+pub const SCALE_FACTOR: u128 = 100_000_000;
+
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Side {
     Buy,
@@ -20,7 +25,7 @@ pub enum OrderTimeInForce {
     ImmediateOrCancel,
 }
 
-#[derive(Serialize, Deserialize,Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OrderPrice(pub u64); 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,5 +76,20 @@ impl Order {
     #[inline(always)]
     pub fn fill(&mut self, fill_qty: u64) {
         self.qty = self.qty.saturating_sub(fill_qty);
+    }
+
+    pub fn calculate_execution_value(&self, executed_qty: u64) -> u64 {
+        // ดึงราคาข้างใน Tuple Struct (OrderPrice) ออกมาแปลงเป็น u128
+        let price_128 = self.price.0 as u128;
+        let qty_128 = executed_qty as u128;
+        
+        // คูณขยายถัง ขจัดปัญหา Integer Overflow 
+        let total_inflated_value = price_128 * qty_128;
+        
+        // หารตบสเกลกลับมาให้อยู่ในระดับทศนิยม 8 ตำแหน่งเท่าเดิม
+        let final_value_128 = total_inflated_value / SCALE_FACTOR;
+        
+        // Downcast กลับเป็น u64 เพื่อนำไปใช้ทำ Clearing ขาออก
+        final_value_128 as u64
     }
 }

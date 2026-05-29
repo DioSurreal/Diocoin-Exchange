@@ -20,7 +20,8 @@ fn make_coordinator(
     snapshot_interval: u64,
 ) -> EngineCoordinator<ChainedArenaManager<Order>> {
     let arena = ChainedArenaManager::new(256);
-    let service = MatchingEngineService::new("BTC-USDT".to_string(), arena);
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let service = MatchingEngineService::new("BTC-USDT".to_string(), arena, event_tx);
     let wal = WalManager::new(wal_dir, 64 * 1024 * 1024);
     let snap = SnapshotManager::new(snap_dir, "engine.snapshot");
     EngineCoordinator::new(service, wal, snap, snapshot_interval)

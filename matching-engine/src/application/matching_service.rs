@@ -4,17 +4,25 @@ use crate::application::MatchingEvent;
 use crate::domain::engine::OrderBook;
 use crate::domain::order::{Order, OrderPrice, Side, OrderType, OrderTimeInForce};
 use crate::domain::traits::ArenaStore;
+use tokio::sync::mpsc::UnboundedSender;
+
+pub mod proto_events {
+    include!(concat!(env!("OUT_DIR"), "/diocoin.exchange.matching.rs"));
+}
 
 pub struct MatchingEngineService<A: ArenaStore<Order>> {
     pub book: OrderBook,
     pub arena: A, 
+    pub event_sender: UnboundedSender<proto_events::OutboundEvent>,
 }
 
 impl<A: ArenaStore<Order>> MatchingEngineService<A> {
-    pub fn new(symbol: String, arena: A) -> Self {
+    // ✅ อัปเดต Constructor ให้รับ event_sender สำหรับท่อ Async Pipeline ขาออก
+    pub fn new(symbol: String, arena: A, event_sender: UnboundedSender<proto_events::OutboundEvent>) -> Self {
         Self {
             book: OrderBook::new(symbol),
             arena,
+            event_sender,
         }
     }
 
@@ -39,6 +47,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                     order_id: taker_order.order_id,
                     reason: "Post-Only order rejected: would take liquidity".to_string(),
                 });
+                self.emit_proto_events(events); // 🚀 ส่งออก Event ก่อน Return
                 return;
             }
         }
@@ -74,14 +83,21 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             let match_qty = std::cmp::min(taker_order.qty, maker_order.qty);
             let match_price = maker_order.price;
 
+            // ===================================================================
+            // 🧠 [PRECISION AUDIT] คำนวณมูลค่าเงินสุทธิรวม (Total Quote Value)
+            // ===================================================================
+            let total_value = maker_order.calculate_execution_value(match_qty);
+
             taker_order.fill(match_qty);
             maker_order.fill(match_qty);
 
+            // ส่งข้อมูลเม็ดเงินที่คำนวณได้อย่างปลอดภัยออกไปสู่โลกภายนอก
             events.push(MatchingEvent::TradeExecuted {
                 maker_id: maker_order.order_id,
                 taker_id: taker_order.order_id,
                 price: match_price,
                 match_qty,
+                total_value,
             });
 
             if maker_order.is_filled() {
@@ -97,12 +113,9 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
         if taker_order.qty > 0 {
             let order_id = taker_order.order_id;
             
-            // Checking both TimeInForce and OrderType to ensure proper memory allocation strategy
             if taker_order.time_in_force == OrderTimeInForce::ImmediateOrCancel || taker_order.order_type == OrderType::Market {
-                // IOC or Market remainder is immediately killed -> Zero-allocation, bypassing the book queue entirely
                 events.push(MatchingEvent::OrderCompleted { order_id });
             } else {
-                // Limit order (GoodTillCancel / PostOnly) survives -> Allocates and persists inside order book
                 let price = taker_order.price;
                 let side = taker_order.side;
                 let is_partial = taker_order.qty < taker_order.original_qty;
@@ -127,6 +140,9 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
         } else {
             events.push(MatchingEvent::OrderCompleted { order_id: taker_order.order_id });
         }
+
+        // 🚀 5. สตรีมข้อมูลลงท่อแบบ Non-blocking ไร้รอยต่อตอนท้ายฟังก์ชัน
+        self.emit_proto_events(events);
     }
 
     pub fn cancel_order(&mut self, order_id: u64, events: &mut Vec<MatchingEvent>) {
@@ -139,6 +155,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                     order_id,
                     reason: "Order not found or already executed".to_string(),
                 });
+                self.emit_proto_events(events); // 🚀 ส่งออก Event ก่อน Return เคสพัง
                 return;
             }
         };
@@ -146,6 +163,37 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
         if let Some(order) = self.arena.get_mut(arena_index) {
             order.qty = 0; 
             events.push(MatchingEvent::OrderCanceled { order_id });
+        }
+
+        // 🚀 สตรีมข้อมูลลงท่อตอนท้ายฟังก์ชันสำเร็จ
+        self.emit_proto_events(events);
+    }
+
+    // ===================================================================
+    // ⚡ Private Helper: แปลงเหตุการณ์เป็น Protobuf และยิงลงท่อแบบ Fire-and-forget
+    // ===================================================================
+    fn emit_proto_events(&self, events: &[MatchingEvent]) {
+        for event in events {
+            if let MatchingEvent::TradeExecuted { maker_id, taker_id, price, match_qty, total_value } = event {
+                
+                let proto_trade = proto_events::TradeExecutedEvent {
+                    maker_id: *maker_id,
+                    taker_id: *taker_id,
+                    price: price.0,
+                    match_qty: *match_qty,
+                    total_value: *total_value,
+                    timestamp: 1716475000, // สามารถขยายไปใช้ Timestamp จริงได้ในอนาคต
+                };
+
+                let outbound = proto_events::OutboundEvent {
+                    event: Some(proto_events::outbound_event::Event::Trade(proto_trade)),
+                };
+
+                // ใช้ Unbounded Channel ส่งข้อมูลไปสระเบื้องหลังแบบ O(1) ไม่ขัดจังหวะการจับคู่หลัก
+                let _ = self.event_sender.send(outbound);
+            }
+            // 💡 โน้ต: สามารถขยายแมปปิ้งสำหรับ Event แบบอื่นๆ (เช่น OrderPlaced, Canceled) 
+            // เพิ่มเติมตรงนี้ได้ตามสเปคโครงสร้างไฟล์ `.proto` ของทีมเราครับ
         }
     }
 

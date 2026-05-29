@@ -10,7 +10,8 @@ fn test_matching_engine_million_transaction_load() {
     // 1. Allocate arena architecture with a block size of 50,000 orders.
     // This triggers 10-20 block chainings to test pointer stability.
     let arena = ChainedArenaManager::new(50000);
-    let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena);
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut service = MatchingEngineService::new("BTCUSDT".to_string(), arena, event_tx);
 
     println!("\n==================================================");
     println!("🔥 STARTING STRESS TEST: 1,000,000 TRANSACTIONS");
