@@ -49,7 +49,7 @@ message CancelOrderResponse {
 }
 
 // =================================================================
-// 🎯 ยุบรวมมาจาก EVENTS.PROTO เพื่อให้ฝั่ง Rust เจนออกมาที่โมดูลเดียวกัน
+// Consolidated from EVENTS.PROTO so Rust generates everything into the same module.
 // =================================================================
 
 message TradeExecutedEvent {

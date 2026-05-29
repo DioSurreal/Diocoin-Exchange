@@ -17,7 +17,7 @@ pub struct MatchingEngineService<A: ArenaStore<Order>> {
 }
 
 impl<A: ArenaStore<Order>> MatchingEngineService<A> {
-    // ✅ อัปเดต Constructor ให้รับ event_sender สำหรับท่อ Async Pipeline ขาออก
+    // Constructor accepts event_sender for the outbound async pipeline.
     pub fn new(symbol: String, arena: A, event_sender: UnboundedSender<proto_events::OutboundEvent>) -> Self {
         Self {
             book: OrderBook::new(symbol),
@@ -47,7 +47,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                     order_id: taker_order.order_id,
                     reason: "Post-Only order rejected: would take liquidity".to_string(),
                 });
-                self.emit_proto_events(events); // 🚀 ส่งออก Event ก่อน Return
+                self.emit_proto_events(events); // Emit events before returning.
                 return;
             }
         }
@@ -84,14 +84,14 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             let match_price = maker_order.price;
 
             // ===================================================================
-            // 🧠 [PRECISION AUDIT] คำนวณมูลค่าเงินสุทธิรวม (Total Quote Value)
+            // [PRECISION AUDIT] Calculate the total quote value.
             // ===================================================================
             let total_value = maker_order.calculate_execution_value(match_qty);
 
             taker_order.fill(match_qty);
             maker_order.fill(match_qty);
 
-            // ส่งข้อมูลเม็ดเงินที่คำนวณได้อย่างปลอดภัยออกไปสู่โลกภายนอก
+            // Safely emit the calculated notional value to downstream consumers.
             events.push(MatchingEvent::TradeExecuted {
                 maker_id: maker_order.order_id,
                 taker_id: taker_order.order_id,
@@ -141,7 +141,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             events.push(MatchingEvent::OrderCompleted { order_id: taker_order.order_id });
         }
 
-        // 🚀 5. สตรีมข้อมูลลงท่อแบบ Non-blocking ไร้รอยต่อตอนท้ายฟังก์ชัน
+        // 5. Stream data into the non-blocking pipeline before exiting.
         self.emit_proto_events(events);
     }
 
@@ -155,7 +155,7 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                     order_id,
                     reason: "Order not found or already executed".to_string(),
                 });
-                self.emit_proto_events(events); // 🚀 ส่งออก Event ก่อน Return เคสพัง
+                self.emit_proto_events(events); // Emit events before returning from the failure case.
                 return;
             }
         };
@@ -165,12 +165,12 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
             events.push(MatchingEvent::OrderCanceled { order_id });
         }
 
-        // 🚀 สตรีมข้อมูลลงท่อตอนท้ายฟังก์ชันสำเร็จ
+        // Stream data into the pipeline after successful processing.
         self.emit_proto_events(events);
     }
 
     // ===================================================================
-    // ⚡ Private Helper: แปลงเหตุการณ์เป็น Protobuf และยิงลงท่อแบบ Fire-and-forget
+    // Private helper: convert events to Protobuf and send them fire-and-forget.
     // ===================================================================
     fn emit_proto_events(&self, events: &[MatchingEvent]) {
         for event in events {
@@ -182,18 +182,18 @@ impl<A: ArenaStore<Order>> MatchingEngineService<A> {
                     price: price.0,
                     match_qty: *match_qty,
                     total_value: *total_value,
-                    timestamp: 1716475000, // สามารถขยายไปใช้ Timestamp จริงได้ในอนาคต
+                    timestamp: 1716475000, // Can be replaced with a real timestamp later.
                 };
 
                 let outbound = proto_events::OutboundEvent {
                     event: Some(proto_events::outbound_event::Event::Trade(proto_trade)),
                 };
 
-                // ใช้ Unbounded Channel ส่งข้อมูลไปสระเบื้องหลังแบบ O(1) ไม่ขัดจังหวะการจับคู่หลัก
+                // Use an unbounded channel to send data in O(1) without blocking the matching path.
                 let _ = self.event_sender.send(outbound);
             }
-            // 💡 โน้ต: สามารถขยายแมปปิ้งสำหรับ Event แบบอื่นๆ (เช่น OrderPlaced, Canceled) 
-            // เพิ่มเติมตรงนี้ได้ตามสเปคโครงสร้างไฟล์ `.proto` ของทีมเราครับ
+            // Note: expand this mapping for other events such as OrderPlaced or Canceled.
+            // Add more mappings here as the team's `.proto` schema evolves.
         }
     }
 

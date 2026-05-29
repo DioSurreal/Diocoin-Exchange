@@ -16,7 +16,7 @@ use std::sync::mpsc::{channel as unbounded, Receiver, Sender};
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
-// 📦 Dependencies สำหรับการทำงานร่วมกับ Kafka และ Protobuf Serialization
+// Dependencies for Kafka integration and Protobuf serialization.
 use prost::Message;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::{BaseProducer, BaseRecord};
@@ -73,22 +73,22 @@ impl<D: EventDispatcher> TenantWorker<D> {
         // Re-using our exact domain structures from Phase 1-3
         let arena = ChainedArenaManager::new(256);
 
-        // 🚀 สร้าง Async Channel ขาออกมารองรับโครงสร้าง Protobuf OutboundEvent (แก้ไข Syntax เรียบร้อย)
+        // Create an outbound async channel for Protobuf OutboundEvent messages.
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<proto_events::OutboundEvent>();
 
-        // 🎬 เตรียม Kafka Client Configuration สู่การทำงานจริง
+        // Prepare Kafka client configuration for production use.
         let kafka_brokers = std::env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".to_string());
         let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", &kafka_brokers)
             .set("message.timeout.ms", "5000")
-            .set("queue.buffering.max.ms", "0") // ⚡ Set เป็น 0 สำหรับระบบ Ultra-low Latency 
+            .set("queue.buffering.max.ms", "0") // Set to 0 for ultra-low latency.
             .create()
-            .expect("❌ ไม่สามารถสร้าง Kafka Producer ได้");
+            .expect("Failed to create Kafka Producer");
 
         let symbol_topic = format!("market-data.{}", symbol.to_lowercase());
         let symbol_for_kafka = symbol.clone();
 
-        // 🧠 รันลูปดักฟังสแตนด์บายบน OS Thread ขาออก เพื่อแปลงและส่งข้อมูลลง Kafka Topic
+        // Run a standby listener on an outbound OS thread to encode and send events to Kafka.
         std::thread::spawn(move || {
             while let Some(proto_event) = event_rx.blocking_recv() {
                 let mut buffer = Vec::new();
@@ -98,13 +98,13 @@ impl<D: EventDispatcher> TenantWorker<D> {
                         .key(&symbol_for_kafka);
                     
                     if let Err((e, _)) = producer.send(record) {
-                        eprintln!("❌ [Kafka Export Error] พ่นอีเวนต์ไม่สำเร็จ: {:?}", e);
+                        eprintln!("[Kafka Export Error] Failed to emit event: {:?}", e);
                     }
                 }
             }
         });
 
-        // 🎯 ส่ง event_tx เข้าไปเป็นอาร์กิวเมนต์ตัวที่ 3 ให้แก่โมดูลเรียบร้อยครับ
+        // Pass event_tx as the third argument to the service module.
         let service = MatchingEngineService::new(symbol.clone(), arena, event_tx);
         let wal = WalManager::new(&tenant_wal_dir, 64 * 1024 * 1024);
         let snap = SnapshotManager::new(&tenant_snap_dir, &snapshot_filename);
@@ -143,13 +143,13 @@ impl<D: EventDispatcher> TenantWorker<D> {
                 TenantCommand::ProcessOrder(order) => {
                     events.clear();
                     
-                    // ⏱️ เริ่มสตาร์ทนาฬิกาจับเวลาความเร็วระดับไมโครวินาที
+                    // Start measuring processing latency at microsecond-level precision.
                     let start_time = std::time::Instant::now();
                     
                     // Route directly into our Phase 3 execution core
                     match self.coordinator.handle_process_order(order, &mut events) {
                         Ok(_) => {
-                            // 📊 Fluent API: แยก .record() และ .increment() ออกมาต่อท้ายตามกฏของเวอร์ชันใหม่
+                            // Fluent API: call .record() and .increment() separately for the current metrics version.
                             let duration = start_time.elapsed().as_secs_f64();
                             metrics::histogram!(
                                 "diocoin_matching_engine_process_duration_seconds", 
@@ -167,7 +167,7 @@ impl<D: EventDispatcher> TenantWorker<D> {
                             }
                         }
                         Err(e) => {
-                            // 📊 แทร็กเคสออร์เดอร์ที่เกิด Error ด้วยระเบียบวิธีสากลแบบ Fluent API
+                            // Track order error cases through the metrics fluent API.
                             metrics::counter!(
                                 "diocoin_matching_engine_order_errors_total", 
                                 "symbol" => self.symbol.clone()

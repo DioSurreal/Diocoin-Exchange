@@ -79,17 +79,17 @@ impl Order {
     }
 
     pub fn calculate_execution_value(&self, executed_qty: u64) -> u64 {
-        // ดึงราคาข้างใน Tuple Struct (OrderPrice) ออกมาแปลงเป็น u128
+        // Extract the price from the OrderPrice tuple struct and convert it to u128.
         let price_128 = self.price.0 as u128;
         let qty_128 = executed_qty as u128;
         
-        // คูณขยายถัง ขจัดปัญหา Integer Overflow 
+        // Multiply in a wider integer type to avoid overflow.
         let total_inflated_value = price_128 * qty_128;
         
-        // หารตบสเกลกลับมาให้อยู่ในระดับทศนิยม 8 ตำแหน่งเท่าเดิม
+        // Divide back to the original 8-decimal fixed-point scale.
         let final_value_128 = total_inflated_value / SCALE_FACTOR;
         
-        // Downcast กลับเป็น u64 เพื่อนำไปใช้ทำ Clearing ขาออก
+        // Downcast back to u64 for outbound clearing.
         final_value_128 as u64
     }
 }

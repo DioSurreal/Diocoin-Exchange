@@ -55,11 +55,11 @@ mod tests {
         let mut service = setup_test_engine();
         let mut events = Vec::new();
 
-        // 💡 นิยามสเกลคงที่ขนาดย่อยเพื่อใช้คูณในระบบเทส (10^8)
+        // Define the fixed scale used by tests (10^8).
         const SCALE: u64 = 100_000_000;
 
-        // ✅ ปรับอินพุตโดยการคูณ SCALE เข้าไปให้เป็นค่าจริงในระบบประมวลผล
-        // ราคาจริง = 60,000 USDT, จำนวนจริง = 2 BTC
+        // Convert inputs into internal fixed-point values by multiplying by SCALE.
+        // Actual price = 60,000 USDT, actual quantity = 2 BTC.
         let maker_sell = Order::new(
             1,
             101,
@@ -73,7 +73,7 @@ mod tests {
         );
         service.process_order(maker_sell, &mut events);
 
-        // ✅ ทำแบบเดียวกันกับฝั่ง Taker
+        // Apply the same scaling to the taker side.
         let taker_buy = Order::new(
             2,
             102,
@@ -104,8 +104,8 @@ mod tests {
             assert_eq!(price, OrderPrice(60000 * SCALE));
             assert_eq!(match_qty, 2 * SCALE);
 
-            // ✅ มูลค่าซื้อขายจริงคือ 60,000 * 2 = 120,000 USDT
-            // และต้องอยู่ในรูปหน่วยสเกลสะสมของระบบ u64 ด้วย (คูณ SCALE เข้าไป)
+            // Actual trade value is 60,000 * 2 = 120,000 USDT.
+            // It must be represented in the system's accumulated u64 scale.
             assert_eq!(total_value, 120_000 * SCALE);
         } else {
             panic!("Expected TradeExecuted event");

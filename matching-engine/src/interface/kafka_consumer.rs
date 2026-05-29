@@ -7,7 +7,7 @@ use crate::domain::router::EngineCommand;
 use crate::domain::traits::ArenaStore;
 use crate::infrastructure::observability::governor::MemoryGovernor;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer}; // 💡 เพิ่ม CommitMode เข้ามาครับ
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer}; // Include CommitMode for manual offset commits.
 use rdkafka::message::Message;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -23,9 +23,9 @@ impl PairOrderConsumer {
         let consumer: StreamConsumer = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("group.id", group_id)
-            .set("enable.auto.commit", "false") // ❌ 1. ปิด Auto-Commit เพื่อคุม Offset เอง 100%
+            .set("enable.auto.commit", "false") // Disable auto-commit to control offsets manually.
             .set("auto.offset.reset", "latest")
-            // ป้องกันไม่ให้ Kafka ดึงข้อความไปดองไว้เยอะเกินไปถ้าระบบประมวลผลไม่ทัน
+            // Prevent Kafka from buffering too many messages when processing falls behind.
             .set("queued.max.messages.kbytes", "32768") 
             .create()
             .expect("Consumer creation failed");
@@ -50,7 +50,7 @@ impl PairOrderConsumer {
         let event_producer = EngineEventProducer::new(&self.brokers);
 
         // ===================================================================
-        // 🛡️ [PHASE 1: STATE RECOVERY] (คงเดิมตามที่เราต่อท่อไว้รอบที่แล้ว)
+        // [PHASE 1: STATE RECOVERY] Keep the existing pipeline restoration path.
         // ===================================================================
         println!("⏳ [RECOVERY] [{}] Starting state restoration...", self.topic);
         let last_snapshot_offset: i64 = 0; 
@@ -82,7 +82,7 @@ impl PairOrderConsumer {
                     event_producer.emit_events(&event_buffer).await;
                 }
 
-                // 🔵 Kafka Ingress channel (พร้อมระบบแมนนวลออฟเซ็ต)
+                // Kafka ingress channel with manual offset management.
                 kafka_msg = self.consumer.recv() => {
                     match kafka_msg {
                         Err(e) => eprintln!("Kafka error: {}", e),
@@ -100,11 +100,11 @@ impl PairOrderConsumer {
                             event_buffer.clear();
                             engine_service.process_order(order, &mut event_buffer);
                             
-                            // พ่นผลลัพธ์การจับคู่ราคา (Trade Events) ออกไปที่ Kafka ขาออกก่อน
+                            // Emit matching results as trade events to outbound Kafka first.
                             event_producer.emit_events(&event_buffer).await;
 
-                            // 🎯 2. [MANUAL COMMIT] สั่งเลื่อน Offset แมนนวลหลังจากส่งอีเวนต์สำเร็จเรียบร้อยแล้วเท่านั้น!
-                            // ใช้ CommitMode::Async เพื่อประสิทธิภาพสูงสุด (ไม่บล็อก Hot Path ในการรอ Network Ack จากโบรเกอร์)
+                            // 2. [MANUAL COMMIT] Advance the offset only after events are emitted successfully.
+                            // Use CommitMode::Async to avoid blocking the hot path while waiting for broker ack.
                             if let Err(e) = self.consumer.commit_message(&borrowed_message, CommitMode::Async) {
                                 eprintln!("⚠️ [KAFKA] [{}] Failed to commit offset manually: {}", self.topic, e);
                             }
@@ -112,14 +112,14 @@ impl PairOrderConsumer {
                     }
                 }
 
-                // 🛑 3. [GRACEFUL SHUTDOWN] ดักจับสัญญาณปิดโปรแกรมของระบบปฏิบัติการ
+                // 3. [GRACEFUL SHUTDOWN] Catch the operating system shutdown signal.
                 _ = tokio::signal::ctrl_c() => {
                     println!("🛑 [SHUTDOWN] [{}] Signal received! Initiating graceful worker drain...", self.topic);
                     
-                    // ปิดประตูรับงานใหม่จาก Kafka ทันทีเพื่อเคลียร์คิว
+                    // Stop accepting new Kafka work immediately so the queue can drain.
                     self.consumer.unsubscribe();
                     
-                    // เคลียร์ออเดอร์ที่ค้างคาอยู่ในท่อ gRPC ให้หมดก่อนปิดตัว
+                    // Drain any pending gRPC orders before shutting down.
                     while let Ok(command) = grpc_rx.try_recv() {
                         event_buffer.clear();
                         match command {
@@ -130,7 +130,7 @@ impl PairOrderConsumer {
                     }
 
                     println!("👋 [SHUTDOWN] [{}] All buffers flushed and committed safely. Exiting worker thread.", self.topic);
-                    break; // หลุดออกจากลูปนรกเพื่อจบเอนจินเธรดอย่างปลอดภัย
+                    break; // Exit the loop and stop the engine thread safely.
                 }
             }
         }

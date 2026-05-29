@@ -43,8 +43,9 @@ impl PairConfig {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔥 Starting Diocoin Production-Grade Matching Engine Cluster...");
 
-    let kafka_brokers = "localhost:9092";
-    let grpc_addr = "[::1]:50051".parse()?;
+    let kafka_brokers = std::env::var("KAFKA_BROKERS")
+        .unwrap_or_else(|_| "localhost:9092".to_string());
+    let grpc_addr = "0.0.0.0:50051".parse()?;
 
     metrics_exporter_prometheus::PrometheusBuilder::new()
         .with_http_listener(([0, 0, 0, 0], 9102))
@@ -69,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for pair in market_pairs {
         let governor_clone = memory_governor.clone();
-        let brokers = kafka_brokers.to_string();
+        let brokers = kafka_brokers.clone();
 
         let arena_block_size: usize = match pair.tier {
             LoadTier::High => 500_000,
@@ -79,13 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let arena = ChainedArenaManager::new(arena_block_size);
         
-        // 🚀 สร้าง Async Channel ขาออกมารองรับโครงสร้าง Protobuf OutboundEvent ตามสเปคเอนจิน
+        // Create an outbound async channel for Protobuf OutboundEvent messages.
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // 🧠 รันลูปดักฟังสแตนด์บายทิ้งไว้ เพื่อเคลียร์คิวและส่งข้อมูลต่อในอนาคต
+        // Keep a standby listener loop ready to drain the queue and forward data later.
         tokio::spawn(async move {
             while let Some(_proto_event) = event_rx.recv().await {
-                // Logic สำหรับส่งต่อข้อมูลไปยัง Kafka หรือ gRPC Stream
+                // Logic for forwarding data to Kafka or a gRPC stream.
             }
         });
 

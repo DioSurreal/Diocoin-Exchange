@@ -1,5 +1,4 @@
 #docker-compose.yml
-version: '3.8'
 
 services:
   matching-engine:
@@ -12,13 +11,14 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - RUST_LOG=info
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: diocoin-kafka-broker
     ports:
-      - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
@@ -34,3 +34,9 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
